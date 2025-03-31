@@ -4,7 +4,7 @@
 #include <XInput.h>
 #include <FastLED.h>
 
-#define RIGHT //LEFT or RIGHT
+#define LEFT  //LEFT or RIGHT
 
 #define NUM_LEDS 32
 #define LED_DATA_PIN 0
@@ -12,39 +12,39 @@
 #define PRESSED false
 #define RELEASED true
 
-#define DEBOUCE_TIME_MS 30 // measured bounce is sometimes slightly over 20ms
+#define DEBOUCE_TIME_MS 20  // measured bounce is sometimes slightly over 20ms
 
-#define BUTTON_A_PIN 1 //bt1
-#define BUTTON_B_PIN 2 //bt2
-#define BUTTON_X_PIN 3 //bt3
-#define BUTTON_Y_PIN 4 //bt4
+#define BUTTON_A_PIN 1  //bt1
+#define BUTTON_B_PIN 2  //bt2
+#define BUTTON_X_PIN 3  //bt3
+#define BUTTON_Y_PIN 4  //bt4
 
-#define BUTTON_LB_PIN 5 //bt5
-#define BUTTON_RB_PIN 6 //bt6
-#define BUTTON_BACK_PIN 7 //bt7
-#define BUTTON_START_PIN 8 //bt8
+#define BUTTON_LB_PIN 5     //bt5
+#define BUTTON_RB_PIN 6     //bt6
+#define BUTTON_BACK_PIN 7   //bt7
+#define BUTTON_START_PIN 8  //bt8
 
-#define DPAD_RIGHT_PIN 14 //bt15
-#define DPAD_LEFT_PIN 15 //bt14
-#define DPAD_UP_PIN 16 //bt12
-#define DPAD_DOWN_PIN 17 //bt13
+#define DPAD_RIGHT_PIN 14  //bt15
+#define DPAD_LEFT_PIN 15   //bt14
+#define DPAD_UP_PIN 16     //bt12
+#define DPAD_DOWN_PIN 17   //bt13
 
-#define JOY1_X_PIN A3 //axis 1
-#define JOY1_Y_PIN A2 //axis 2
+#define JOY1_X_PIN A3  //axis 1
+#define JOY1_Y_PIN A2  //axis 2
 
 //normal
-#define JOY2_X_PIN A1 //axis 3
-#define JOY2_Y_PIN A0 //axis 4
+#define JOY2_X_PIN A1  //axis 3
+#define JOY2_Y_PIN A0  //axis 4
 
 //twist
-#define TWIST_1_PIN A10 //axis 4
-#define TWIST_2_PIN A11 //axis 4
+#define TWIST_1_PIN A10  //axis 4
+#define TWIST_2_PIN A11  //axis 4
 
 
 
 #define TRIGGER_LEFT_PIN A5
 #define TRIGGER_RIGHT_PIN A4
-#define DZWIDTH 0.06
+#define DZWIDTH 0.05  //.01
 
 
 
@@ -96,10 +96,10 @@ boolean buttonRIGHTCurrentState = RELEASED;
 boolean buttonRIGHTLastState = RELEASED;
 uint32_t buttonRIGHTLastChange = 0;
 
-boolean dpadUp = 0;
-boolean dpadDown = 0;
-boolean dpadLeft = 0;
-boolean dpadRight = 0;
+boolean dpadUp = false;
+boolean dpadDown = false;
+boolean dpadLeft = false;
+boolean dpadRight = false;
 
 
 
@@ -110,6 +110,11 @@ uint32_t joyRightYProcessed = 0;
 uint32_t triggerLeftProcessed = 0;
 uint32_t triggerRightProcessed = 0;
 
+uint32_t triggerLeftProcessedLastValue = 0;
+uint32_t triggerRightProcessedLastValue = 0;
+uint32_t triggerLeftRawLastValue = 0;
+uint32_t triggerRightRawLastValue = 0;
+
 uint32_t joyLeftXRaw = 0;
 uint32_t joyLeftYRaw = 0;
 uint32_t joyRightXRaw = 0;
@@ -119,16 +124,6 @@ uint32_t triggerRightRaw = 0;
 
 uint32_t iMin = 0;
 uint32_t iMax = 1023;
-
-/*
-  uint32_t iMid = (iMin+iMax)/2;
-  uint32_t iDZXLow = iMid * 0.94;
-  uint32_t iDZXHigh = iMid * 1.06;
-  uint32_t iDZYLow = iMid * 0.94;
-  uint32_t iDZYHigh = iMid * 1.06;
-  uint32_t iDZTLow = iMid * 0.94;
-  uint32_t iDZTHigh = iMid * 1.06;
-*/
 
 uint32_t iMidLeftX = 0;
 uint32_t iMidLeftY = 0;
@@ -150,27 +145,11 @@ uint32_t iDZLowRightTrigger = 0;
 uint32_t iDZHighRightTrigger = 0;
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 uint32_t oMin = 0;
 uint32_t oMax = 1023;
-uint32_t oMid = (oMin + oMax) / 2;
+uint32_t oMid = ((oMin + oMax) / 2);
+
+uint32_t decimator = 0xFFFFFFFC;  //0xFFFFFFF8 0xFFFFFFFC 0xFFFFFFFE
 
 
 // Define the array of leds
@@ -180,6 +159,7 @@ uint32_t now = millis();
 
 void setup() {
   XInput.begin();
+  //Serial1.begin(9600); // Serial.begin() ou Serial0.begin() est le UART sur USB, et Serial1.begin() est le UART utilisant les pin RX/TX.
 
   pinMode(BUTTON_A_PIN, INPUT_PULLUP);
   buttonALastState = digitalRead(BUTTON_A_PIN);
@@ -219,6 +199,7 @@ void setup() {
 
   pinMode(DPAD_DOWN_PIN, INPUT_PULLUP);
   buttonDOWNLastState = digitalRead(DPAD_DOWN_PIN);
+  buttonDOWNLastState = 0;
   buttonDOWNLastChange = millis();
 
   pinMode(DPAD_LEFT_PIN, INPUT_PULLUP);
@@ -231,7 +212,7 @@ void setup() {
 
   XInput.setJoystickRange(0, 1023);  // Set joystick range to the ADC
   XInput.setAutoSend(false);         // Wait for all controls before sending
-
+  XInput.setTriggerRange(0, 1023);
 
 
 
@@ -240,8 +221,8 @@ void setup() {
   iMidLeftY = analogRead(JOY1_Y_PIN);
   iMidRightX = analogRead(TWIST_1_PIN);
   iMidRightY = analogRead(TWIST_2_PIN);
-  iMidLeftTrigger = analogRead(TRIGGER_LEFT_PIN);
-  iMidRightTrigger = analogRead(TRIGGER_RIGHT_PIN);
+  iMidLeftTrigger = 511;
+  iMidRightTrigger = 511;
   iDZLowLeftX = iMidLeftX * (1 - DZWIDTH);
   iDZHighLeftX = iMidLeftX * (1 + DZWIDTH);
   iDZLowLeftY = iMidLeftY * (1 - DZWIDTH);
@@ -257,12 +238,9 @@ void setup() {
 
   FastLED.addLeds<WS2811, LED_DATA_PIN, RGB>(leds, NUM_LEDS).setCorrection(CRGB(255, 160, 130));
   FastLED.setBrightness(255);
-
-
 }
 
 void loop() {
-
   //basic rainbow effect
   pos++;
   leds[0] = leds[1] = CHSV(pos, 255, 255);
@@ -396,87 +374,59 @@ void loop() {
   }
 
 
-  /*
-    if (now - buttonUPLastChange >= DEBOUCE_TIME_MS){
+
+  if (now - buttonUPLastChange >= DEBOUCE_TIME_MS) {
     buttonUPCurrentState = digitalRead(DPAD_UP_PIN);
-    if ((buttonUPCurrentState == PRESSED) && (buttonUPLastState == RELEASED)){
-      XInput.press(BUTTON_UP);
-      leds[3] = CRGB(255,0,0);
-      //FastLED.show();
+    if ((buttonUPCurrentState == PRESSED) && (buttonUPLastState == RELEASED)) {
+      dpadUp = true;
       buttonUPLastState = PRESSED;
       buttonUPLastChange = now;
-    } else if (buttonUPCurrentState == RELEASED && (buttonUPLastState == PRESSED)){
-      XInput.release(BUTTON_UP);
-      leds[3] = CRGB(255,255,255);
-      //FastLED.show();
+    } else if (buttonUPCurrentState == RELEASED && (buttonUPLastState == PRESSED)) {
+      dpadUp = false;
       buttonUPLastState = RELEASED;
       buttonUPLastChange = now;
     }
-    }
-    if (now - buttonDOWNLastChange >= DEBOUCE_TIME_MS){
+  }
+  if (now - buttonDOWNLastChange >= DEBOUCE_TIME_MS) {
     buttonDOWNCurrentState = digitalRead(DPAD_DOWN_PIN);
-    if ((buttonDOWNCurrentState == PRESSED) && (buttonDOWNLastState == RELEASED)){
-      XInput.press(BUTTON_DOWN);
-      leds[3] = CRGB(255,0,0);
-      //FastLED.show();
+    if ((buttonDOWNCurrentState == PRESSED) && (buttonDOWNLastState == RELEASED)) {
+      dpadDown = true;
       buttonDOWNLastState = PRESSED;
       buttonDOWNLastChange = now;
-    } else if (buttonDOWNCurrentState == RELEASED && (buttonDOWNLastState == PRESSED)){
-      XInput.release(BUTTON_DOWN);
-      leds[3] = CRGB(255,255,255);
-      //FastLED.show();
+    } else if (buttonDOWNCurrentState == RELEASED && (buttonDOWNLastState == PRESSED)) {
+      dpadDown = false;
       buttonDOWNLastState = RELEASED;
       buttonDOWNLastChange = now;
     }
-    }
-    if (now - buttonLEFTLastChange >= DEBOUCE_TIME_MS){
+  }
+  if (now - buttonLEFTLastChange >= DEBOUCE_TIME_MS) {
     buttonLEFTCurrentState = digitalRead(DPAD_LEFT_PIN);
-    if ((buttonLEFTCurrentState == PRESSED) && (buttonLEFTLastState == RELEASED)){
-      XInput.press(BUTTON_LEFT);
-      leds[3] = CRGB(255,0,0);
-      //FastLED.show();
+    if ((buttonLEFTCurrentState == PRESSED) && (buttonLEFTLastState == RELEASED)) {
+      dpadLeft = true;
       buttonLEFTLastState = PRESSED;
       buttonLEFTLastChange = now;
-    } else if (buttonLEFTCurrentState == RELEASED && (buttonLEFTLastState == PRESSED)){
-      XInput.release(BUTTON_LEFT);
-      leds[3] = CRGB(255,255,255);
-      //FastLED.show();
+    } else if (buttonLEFTCurrentState == RELEASED && (buttonLEFTLastState == PRESSED)) {
+      dpadLeft = false;
       buttonLEFTLastState = RELEASED;
       buttonLEFTLastChange = now;
     }
-    }
-    if (now - buttonRIGHTLastChange >= DEBOUCE_TIME_MS){
+  }
+  if (now - buttonRIGHTLastChange >= DEBOUCE_TIME_MS) {
     buttonRIGHTCurrentState = digitalRead(DPAD_RIGHT_PIN);
-    if ((buttonRIGHTCurrentState == PRESSED) && (buttonRIGHTLastState == RELEASED)){
-      XInput.press(BUTTON_RIGHT);
-      leds[3] = CRGB(255,0,0);
-      //FastLED.show();
+    if ((buttonRIGHTCurrentState == PRESSED) && (buttonRIGHTLastState == RELEASED)) {
+      dpadRight = true;
       buttonRIGHTLastState = PRESSED;
       buttonRIGHTLastChange = now;
-    } else if (buttonRIGHTCurrentState == RELEASED && (buttonRIGHTLastState == PRESSED)){
-      XInput.release(BUTTON_RIGHT);
-      leds[3] = CRGB(255,255,255);
-      //FastLED.show();
+    } else if (buttonRIGHTCurrentState == RELEASED && (buttonRIGHTLastState == PRESSED)) {
+      dpadRight = false;
       buttonRIGHTLastState = RELEASED;
       buttonRIGHTLastChange = now;
     }
-    }
-  */
+  }
 
-  dpadUp = !digitalRead(DPAD_UP_PIN);
-  
-  #ifdef LEFT
-  dpadDown = !digitalRead(DPAD_DOWN_PIN);
-  #endif
 
-  #ifdef RIGHT
-  dpadDown = 0; //not currently connected
-  #endif
-  
-  dpadLeft = !digitalRead(DPAD_LEFT_PIN);
-  dpadRight = !digitalRead(DPAD_RIGHT_PIN);
 
-  XInput.setDpad(dpadUp, dpadDown, dpadLeft, dpadRight);
+
 
   joyLeftXRaw = analogRead(JOY1_X_PIN);
   joyLeftYRaw = analogRead(JOY1_Y_PIN);
@@ -484,6 +434,7 @@ void loop() {
   joyRightYRaw = analogRead(TWIST_2_PIN);
   triggerLeftRaw = analogRead(TRIGGER_LEFT_PIN);
   triggerRightRaw = analogRead(TRIGGER_RIGHT_PIN);
+
 
 
   if (joyLeftXRaw <= iMidLeftX)
@@ -507,46 +458,80 @@ void loop() {
     joyRightYProcessed = constrain(map(joyRightYRaw, iDZHighRightY, iMax, oMid, oMax), oMid, oMax);
 
   if (triggerLeftRaw <= iMidLeftTrigger)
-    triggerLeftProcessed = constrain(map(triggerLeftRaw, iMin, iDZLowLeftTrigger, oMin, oMid), oMin, oMid) / 4;
+    triggerLeftProcessed = constrain(map(triggerLeftRaw & decimator, iMin, iDZLowLeftTrigger, oMin, oMid), oMin, oMid);
   else
-    triggerLeftProcessed = constrain(map(triggerLeftRaw, iDZHighLeftTrigger, iMax, oMid, oMax), oMid, oMax) / 4;
+    triggerLeftProcessed = constrain(map(triggerLeftRaw & decimator, iDZHighLeftTrigger, iMax, oMid, oMax), oMid, oMax);
 
   if (triggerRightRaw <= iMidRightTrigger)
-    triggerRightProcessed = constrain(map(triggerRightRaw, iMin, iDZLowRightTrigger, oMin, oMid), oMin, oMid) / 4;
+    triggerRightProcessed = constrain(map(triggerRightRaw & decimator, iMin, iDZLowRightTrigger, oMin, oMid), oMin, oMid);
   else
-    triggerRightProcessed = constrain(map(triggerRightRaw, iDZHighRightTrigger, iMax, oMid, oMax), oMid, oMax) / 4;
+    triggerRightProcessed = constrain(map(triggerRightRaw & decimator, iDZHighRightTrigger, iMax, oMid, oMax), oMid, oMax);
 
+#ifdef LEFT
+  XInput.setJoystickX(JOY_LEFT, joyLeftXProcessed);
+  XInput.setJoystickY(JOY_LEFT, joyLeftYProcessed);
+  XInput.setJoystickX(JOY_RIGHT, joyRightXProcessed);
+  XInput.setJoystickY(JOY_RIGHT, oMid);  //not currently connected
+  XInput.setTrigger(TRIGGER_LEFT, 0);  //not currently connected
+  XInput.setTrigger(TRIGGER_RIGHT, 0);  //not currently connected
+  XInput.setDpad(dpadUp, dpadDown, dpadLeft, dpadRight);
+#endif
 
-
-  #ifdef LEFT
-    XInput.setJoystickX(JOY_LEFT, joyLeftXProcessed);
-    XInput.setJoystickY(JOY_LEFT, joyLeftYProcessed);
-    XInput.setJoystickX(JOY_RIGHT, joyRightXProcessed);
-    //XInput.setJoystickY(JOY_RIGHT, joyRightYProcessed);  //not currently connected
-    //XInput.setTrigger(TRIGGER_LEFT, triggerLeftProcessed);  //not currently connected
-    //XInput.setTrigger(TRIGGER_RIGHT, triggerRightProcessed);  //not currently connected
-  #endif
- 
-  #ifdef RIGHT
-    XInput.setJoystickX(JOY_LEFT, joyLeftXProcessed);
-    XInput.setJoystickY(JOY_LEFT, joyLeftYProcessed);
-    XInput.setJoystickX(JOY_RIGHT, joyRightXProcessed);
-    //XInput.setJoystickY(JOY_RIGHT, joyRightYProcessed);  //not currently connected
-    XInput.setTrigger(TRIGGER_LEFT, triggerLeftProcessed);
-    XInput.setTrigger(TRIGGER_RIGHT, triggerRightProcessed);
-  #endif
- 
- 
-  // for debug only
-  /*
-    XInput.setJoystickX(JOY_LEFT, joyLeftXRaw);
-    XInput.setJoystickY(JOY_LEFT, joyLeftYRaw);
-    XInput.setJoystickX(JOY_RIGHT, joyRightXRaw);
-    XInput.setJoystickY(JOY_RIGHT, joyRightYRaw);
-    XInput.setTrigger(TRIGGER_LEFT, triggerLeftRaw);
-    XInput.setTrigger(TRIGGER_RIGHT, triggerRightRaw);
-  */
-
+#ifdef RIGHT
+  XInput.setJoystickX(JOY_LEFT, joyLeftXProcessed);
+  XInput.setJoystickY(JOY_LEFT, joyLeftYProcessed);
+  XInput.setJoystickX(JOY_RIGHT, joyRightXProcessed);
+  XInput.setJoystickY(JOY_RIGHT, oMid);  // not currently connected, if connected should be joyRightYProcessed
+  XInput.setTrigger(TRIGGER_LEFT, triggerLeftProcessed);
+  XInput.setTrigger(TRIGGER_RIGHT, triggerRightProcessed);
+  XInput.setDpad(0, 0, 0, 0); //not currently connected
+#endif
 
   XInput.send();
+
+
+
+  // for debug only
+
+
+  /*
+
+  if (triggerLeftProcessed != triggerLeftProcessedLastValue){
+    triggerLeftProcessedLastValue = triggerLeftProcessed;
+    Serial1.print(" - Trigger_Left_Processed: ");
+    Serial1.println(triggerLeftProcessed);
+  }
+  if (triggerRightProcessed != triggerRightProcessedLastValue){
+    triggerRightProcessedLastValue = triggerRightProcessed;
+    Serial1.print(" - Trigger_Right_Processed: ");
+    Serial1.println(triggerRightProcessed);
+  }
+
+
+  if (triggerLeftRaw != triggerLeftRawLastValue){
+    triggerLeftRawLastValue = triggerLeftRaw;
+    Serial1.print(" - Trigger_Left_Raw: ");
+    Serial1.println(triggerLeftRaw);
+  }
+  if (triggerRightRaw != triggerRightRawLastValue){
+    triggerRightRawLastValue = triggerRightRaw;
+    Serial1.print(" - Trigger_Right_Raw: ");
+    Serial1.println(triggerRightRaw);
+  }
+
+    Serial1.print("X_Left_RAW: ");
+    Serial1.print(joyLeftXRaw);
+    Serial1.print(" - Y_Left_RAW: ");
+    Serial1.print(joyLeftYRaw);
+
+    Serial1.print(" --- X_Left_Processed: ");
+    Serial1.print(joyLeftXProcessed);
+    Serial1.print(" - Y_Left_Processed: ");
+    Serial1.println(joyLeftYProcessed);
+
+*/
+
+
+
+
 }
